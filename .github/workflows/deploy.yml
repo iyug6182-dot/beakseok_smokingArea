@@ -1,0 +1,24 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ["main"] # 메인 브랜치에 푸시될 때 실행
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 핵심 단계: index.html에서 placeholder를 실제 Secret 값으로 교체
+      - name: Replace API Key
+        run: |
+          sed -i 's/KAKAO_MAP_KEY_PLACEHOLDER/${{ secrets.KAKAO_MAP_KEY }}/g' index.html
+
+      # 이후 배포 단계 (GitHub Pages 배포 설정에 따라 다를 수 있음)
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: . # 배포할 폴더
+          branch: gh-pages # 배포될 브랜치
