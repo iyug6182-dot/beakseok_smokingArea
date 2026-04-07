@@ -29,4 +29,4 @@ jobs:
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           folder: . 
-          branch: gh-pages # 배포용 브랜치
+          branch: main # 배포용 브랜치
