@@ -4,29 +4,39 @@ on:
   push:
     branches: ["main"]
 
-# 핵심: 액션에 쓰기 권한을 명시적으로 부여합니다. (128 에러 해결)
+# 배포 권한 설정 (Node 24 및 Pages 배포 필수 권한)
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 env:
-  # Node.js 24 사용 강제 (경고 해결)
+  # Node.js 20 경고 해결을 위한 설정
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # index.html의 placeholder를 실제 Secret 값으로 교체
+      # index.html의 Placeholder를 실제 Secret 키로 교체
       - name: Replace API Key
         run: |
           sed -i 's/KAKAO_MAP_KEY_PLACEHOLDER/${{ secrets.KAKAO_MAP_KEY }}/g' index.html
 
-      # 배포 실행
-      - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          folder: . 
-          branch: main # 배포용 브랜치
+          path: '.' # 현재 폴더 전체 업로드
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
