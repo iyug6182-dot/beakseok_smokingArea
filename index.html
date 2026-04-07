@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+<meta name="theme-color" content="#05050a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="백석 흡연 지도">
+<title>백석대 스마트 흡연 지도</title>
+<script src="config.js"></script>
+const myKey = CONFIG.API_KEY;
+<script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=KAKAO_MAP_KEY_PLACEHOLDER&libraries=services"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Share+Tech+Mono&family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════
+   TOKENS
+═══════════════════════════════════════════ */
+:root {
+  --g:  #39ff14;
+  --o:  #ff6a00;
+  --p:  #ff0066;
+  --c:  #00e5ff;
+  --y:  #ffe600;
+  --bg: #05050a;
+  --mono: 'Share Tech Mono', monospace;
+  --disp: 'Black Han Sans', sans-serif;
+  --sans: 'Noto Sans KR', sans-serif;
+
+  --ticker-h: 26px;
+  --header-h: 50px;
+  --legend-h: 28px;
+  --nav-h:    50px;
+  --top-total: calc(var(--ticker-h) + var(--header-h) + var(--legend-h));
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+html, body {
+  width:100%; height:100%;
+  background:var(--bg);
+  color:var(--g);
+  font-family:var(--mono);
+  overflow:hidden;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;
+}
+
+/* scanline texture — mix-blend keeps map unaffected */
+body::after {
+  content:'';
+  position:fixed; inset:0; z-index:8000; pointer-events:none;
+  background:repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,0.04) 3px 4px);
+  mix-blend-mode:multiply;
+}
+
+/* ═══════════════════════════════════════════
+   TICKER
+═══════════════════════════════════════════ */
+.ticker {
+  position:fixed; top:0; left:0; right:0;
+  height:var(--ticker-h);
+  background:rgba(0,0,0,0.92);
+  border-bottom:1.5px solid var(--g);
+  box-shadow:0 0 12px rgba(57,255,20,.2);
+  display:flex; align-items:center;
+  z-index:3000; overflow:hidden;
+}
+.t-badge {
+  flex-shrink:0; height:100%;
+  padding:0 10px; background:var(--g); color:#000;
+  font-size:8px; font-weight:900; letter-spacing:2px;
+  display:flex; align-items:center;
+}
+.t-track { flex:1; overflow:hidden; height:100%; display:flex; align-items:center; }
+.t-inner {
+  white-space:nowrap; padding-left:24px;
+  font-size:9.5px; color:var(--o); letter-spacing:.7px;
+  animation:tick 36s linear infinite;
+}
+.t-inner .s { color:var(--g); margin:0 14px; }
+@keyframes tick { from{transform:translateX(100vw)} to{transform:translateX(-100%)} }
+
+/* ═══════════════════════════════════════════
+   HEADER
+═══════════════════════════════════════════ */
+.header {
+  position:fixed; top:var(--ticker-h); left:0; right:0;
+  height:var(--header-h);
+  background:rgba(4,4,12,.97);
+  border-bottom:1.5px solid rgba(57,255,20,.28);
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 14px; z-index:2900;
+  backdrop-filter:blur(8px);
+  box-shadow:0 2px 18px rgba(0,0,0,.6);
+}
+.h-logo { font-family:var(--disp); font-size:17px; color:var(--g);
+  text-shadow:0 0 9px var(--g), 0 0 22px rgba(57,255,20,.35); }
+.h-logo em { color:var(--o); font-style:normal; text-shadow:0 0 9px var(--o); }
+.h-badges { display:flex; gap:7px; align-items:center; }
+.chip { font-size:7.5px; letter-spacing:1.5px; padding:3px 7px; border-radius:2px; }
+.chip-live { background:rgba(57,255,20,.1); border:1px solid var(--g); color:var(--g); animation:blink 1.5s infinite; }
+.chip-z    { background:rgba(255,106,0,.1); border:1px solid var(--o); color:var(--o); }
+.chip-d    { background:rgba(255,0,102,.1); border:1px solid var(--p); color:var(--p); }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.32} }
+
+/* ═══════════════════════════════════════════
+   LEGEND
+═══════════════════════════════════════════ */
+.legend {
+  position:fixed;
+  top:calc(var(--ticker-h) + var(--header-h));
+  left:0; right:0;
+  height:var(--legend-h);
+  background:rgba(3,3,9,.93);
+  border-bottom:1px solid rgba(57,255,20,.12);
+  display:flex; align-items:center; gap:14px;
+  padding:0 12px; z-index:2800;
+  overflow-x:auto; scrollbar-width:none;
+}
+.legend::-webkit-scrollbar { display:none; }
+.leg { display:flex; align-items:center; gap:5px; font-size:8.5px; cursor:pointer;
+  white-space:nowrap; transition:opacity .15s; }
+.leg:hover { opacity:.75; }
+.ld { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+.ld-o { background:var(--o); box-shadow:0 0 5px var(--o); }
+.ld-p { background:var(--p); box-shadow:0 0 5px var(--p); animation:pdot .9s infinite; }
+.ld-c { background:var(--c); box-shadow:0 0 5px var(--c); }
+@keyframes pdot { 0%,100%{transform:scale(1)} 50%{transform:scale(1.65)} }
+.leg-hint { margin-left:auto; font-size:7.5px; color:rgba(255,255,255,.25); cursor:default; }
+
+/* ═══════════════════════════════════════════
+   MAP AREA  ←  THE CRITICAL SECTION
+═══════════════════════════════════════════ */
+.map-area {
+  position:fixed;
+  top: var(--top-total);
+  left:0; right:0;
+  bottom: var(--nav-h);
+  overflow:hidden;
+  z-index:10;
+  background:#080e08;
+}
+
+#map { display:block; }
+
+/* 커스텀 핀 */
+.s-pin {
+  position:relative;
+  cursor:pointer;
+  filter:drop-shadow(0 2px 7px rgba(255,106,0,.75));
+  transform:translateY(-100%);
+  transition:filter .17s, transform .17s;
+}
+.s-pin:hover { filter:drop-shadow(0 2px 16px rgba(255,106,0,1)); }
+.s-pin .plbl {
+  position:absolute; bottom:calc(100% + 2px); left:50%;
+  transform:translateX(-50%);
+  background:rgba(4,4,14,.94); border:1px solid var(--o);
+  color:var(--o); font-family:var(--sans);
+  font-size:8px; font-weight:700; padding:2px 7px;
+  white-space:nowrap; border-radius:2px;
+  opacity:0; transition:opacity .18s; pointer-events:none;
+}
+.s-pin:hover .plbl { opacity:1; }
+
+/* 위험구역 오버레이 */
+.d-zone { transform:translate(-50%,-50%); pointer-events:none; }
+
+/* ═══════════════════════════════════════════
+   LAYERS
+═══════════════════════════════════════════ */
+.layer { position:absolute; inset:0; }
+.layer-zones  { z-index:20; }
+.layer-danger { z-index:18; pointer-events:none; }
+
+/* ── SMOKING PIN ── */
+.s-pin {
+  position:absolute;
+  transform:translate(-50%,-100%);
+  cursor:pointer; z-index:25;
+  filter:drop-shadow(0 2px 7px rgba(255,106,0,.75));
+  transition:transform .17s, filter .17s;
+}
+.s-pin:hover, .s-pin.hi {
+  transform:translate(-50%,-100%) scale(1.3);
+  filter:drop-shadow(0 2px 16px rgba(255,106,0,1));
+  z-index:36;
+}
+.s-pin .plbl {
+  position:absolute; bottom:calc(100% - 2px); left:50%;
+  transform:translateX(-50%);
+  background:rgba(4,4,14,.94); border:1px solid var(--o);
+  color:var(--o); font-family:var(--sans);
+  font-size:8px; font-weight:700; padding:2px 7px;
+  white-space:nowrap; border-radius:2px; letter-spacing:.3px;
+  text-shadow:0 0 5px var(--o);
+  opacity:0; transition:opacity .18s; pointer-events:none;
+}
+.s-pin:hover .plbl, .s-pin.hi .plbl { opacity:1; }
+
+/* ── DANGER ZONE ── */
+.d-zone {
+  position:absolute;
+  transform:translate(-50%,-50%);
+  z-index:18;
+}
+.d-outer {
+  position:relative; width:80px; height:80px;
+  display:flex; align-items:center; justify-content:center;
+}
+.dr1,.dr2,.dr3 {
+  position:absolute; border-radius:50%;
+  border:2px solid var(--p);
+}
+.dr1 {
+  inset:0; background:rgba(255,0,102,.09);
+  box-shadow:0 0 14px var(--p), 0 0 30px rgba(255,0,102,.28), inset 0 0 12px rgba(255,0,102,.07);
+  animation:dring 1.1s ease-in-out infinite;
+}
+.dr2 { inset:-12px; border-color:rgba(255,0,102,.35); animation:dring 1.1s ease-in-out infinite .28s; }
+.dr3 { inset:-24px; border-color:rgba(255,0,102,.16); animation:dring 1.1s ease-in-out infinite .56s; }
+@keyframes dring { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.42;transform:scale(1.07)} }
+.d-ico { font-size:18px; position:relative; z-index:2; }
+.d-lbl {
+  position:absolute; top:calc(100% + 14px); left:50%;
+  transform:translateX(-50%);
+  background:rgba(255,0,102,.11); border:1px solid var(--p);
+  color:var(--p); font-family:var(--sans);
+  font-size:8px; font-weight:700; padding:2px 7px;
+  white-space:nowrap; border-radius:2px;
+  text-shadow:0 0 6px var(--p); letter-spacing:.3px;
+}
+
+/* ═══════════════════════════════════════════
+   HUD (top-left)
+═══════════════════════════════════════════ */
+.hud {
+  position:fixed;
+  top:calc(var(--top-total) + 8px); left:8px;
+  background:rgba(3,3,10,.86); border:1px solid rgba(57,255,20,.22);
+  border-radius:4px; padding:7px 11px; z-index:100;
+  backdrop-filter:blur(8px);
+}
+.hud-row { display:flex; align-items:baseline; gap:5px; }
+.hud-n { font-family:var(--mono); font-size:20px; line-height:1; }
+.hud-l { font-size:7px; letter-spacing:1px; opacity:.48; }
+.hud-div { height:1px; background:rgba(57,255,20,.14); margin:4px 0; }
+.co { color:var(--o); text-shadow:0 0 6px var(--o); }
+.cp { color:var(--p); text-shadow:0 0 6px var(--p); }
+
+/* ═══════════════════════════════════════════
+   ZOOM FABs
+═══════════════════════════════════════════ */
+.fabs {
+  position:fixed;
+  top:calc(var(--top-total) + 8px); right:8px;
+  display:flex; flex-direction:column; gap:5px; z-index:100;
+}
+.fab {
+  width:34px; height:34px; border-radius:4px;
+  border:1px solid rgba(57,255,20,.24);
+  background:rgba(3,3,10,.86); color:rgba(57,255,20,.48);
+  font-size:18px; display:flex; align-items:center; justify-content:center;
+  cursor:pointer; transition:all .17s; backdrop-filter:blur(6px);
+  user-select:none;
+}
+.fab:hover, .fab:active {
+  border-color:var(--g); color:var(--g);
+  box-shadow:0 0 10px rgba(57,255,20,.25);
+  background:rgba(57,255,20,.09);
+}
+
+/* ═══════════════════════════════════════════
+   DETAIL PANEL
+═══════════════════════════════════════════ */
+.panel {
+  position:fixed; left:0; right:0;
+  bottom:calc(-290px); height:290px;
+  background:rgba(4,4,14,.98);
+  border-top:2px solid var(--g); border-radius:14px 14px 0 0;
+  z-index:3500;
+  transition:bottom .38s cubic-bezier(.16,1,.3,1);
+  backdrop-filter:blur(20px);
+  box-shadow:0 -4px 36px rgba(57,255,20,.17);
+  padding:0 18px 16px;
+}
+.panel.open { bottom:var(--nav-h); }
+.p-handle {
+  width:36px; height:4px; border-radius:2px;
+  background:rgba(57,255,20,.27); margin:10px auto 12px; cursor:pointer;
+}
+.p-x {
+  position:absolute; top:11px; right:14px;
+  width:22px; height:22px; border-radius:50%;
+  background:rgba(255,106,0,.1); border:1px solid var(--o);
+  color:var(--o); font-size:11px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+}
+.p-x:hover { background:rgba(255,106,0,.26); }
+.p-id   { font-size:9px; color:var(--o); letter-spacing:2px; margin-bottom:2px; }
+.p-name { font-family:var(--disp); font-size:20px; color:var(--g);
+  text-shadow:0 0 9px rgba(57,255,20,.4); margin-bottom:9px; }
+.p-hr   { height:1px; background:linear-gradient(90deg,var(--g),transparent); margin-bottom:10px; }
+.p-grid { display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:9px; }
+.p-cell {
+  background:rgba(57,255,20,.04); border:1px solid rgba(57,255,20,.14);
+  border-radius:5px; padding:7px 10px;
+}
+.p-cl { font-size:7.5px; color:rgba(57,255,20,.38); letter-spacing:1.5px; margin-bottom:2px; }
+.p-cv { font-size:12px; color:var(--g); font-weight:700; font-family:var(--sans); }
+.p-tags { display:flex; gap:5px; flex-wrap:wrap; }
+.p-tag {
+  font-size:8px; padding:2px 7px; border-radius:2px;
+  border:1px solid rgba(57,255,20,.2); color:rgba(57,255,20,.58); letter-spacing:.6px;
+}
+
+/* ═══════════════════════════════════════════
+   BOTTOM NAV
+═══════════════════════════════════════════ */
+.nav {
+  position:fixed; bottom:0; left:0; right:0;
+  height:var(--nav-h);
+  background:rgba(4,4,12,.98);
+  border-top:1.5px solid rgba(57,255,20,.2);
+  display:flex; z-index:3000;
+  backdrop-filter:blur(10px);
+}
+.nb {
+  flex:1; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:2px;
+  border:none; background:transparent;
+  color:rgba(57,255,20,.33);
+  font-family:var(--mono); font-size:7.5px; letter-spacing:.8px;
+  cursor:pointer; transition:color .17s, background .17s;
+}
+.nb-i { font-size:16px; }
+.nb.on  { color:var(--g); }
+.nb:hover { background:rgba(57,255,20,.05); color:var(--g); }
+
+/* ═══════════════════════════════════════════
+   INFO MODAL
+═══════════════════════════════════════════ */
+.modal-bg {
+  position:fixed; inset:0; background:rgba(0,0,0,.74);
+  z-index:4500; display:none; align-items:flex-end;
+}
+.modal-bg.open { display:flex; }
+.modal {
+  width:100%; max-height:80vh; overflow-y:auto;
+  background:rgba(4,4,14,.99);
+  border-top:2px solid var(--g); border-radius:16px 16px 0 0;
+  padding:18px 18px 52px; backdrop-filter:blur(22px);
+  scrollbar-width:none;
+}
+.modal::-webkit-scrollbar { display:none; }
+.modal-head {
+  display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;
+}
+.modal-head h2 { font-family:var(--disp); font-size:18px; color:var(--g);
+  text-shadow:0 0 8px rgba(57,255,20,.4); }
+.modal-x {
+  background:rgba(255,106,0,.1); border:1px solid var(--o);
+  color:var(--o); font-size:9.5px; padding:3px 10px;
+  border-radius:3px; cursor:pointer; font-family:var(--mono);
+}
+.modal p { font-family:var(--sans); font-size:12px; line-height:1.85;
+  color:rgba(255,255,255,.6); margin-bottom:10px; }
+.modal strong { color:var(--g); }
+.msec { font-family:var(--mono); font-size:8.5px; letter-spacing:1.5px;
+  margin:10px 0 6px; }
+.zlist { list-style:none; }
+.zlist li {
+  font-family:var(--sans); font-size:11.5px; padding:6px 10px;
+  border-left:2px solid var(--o); margin-bottom:4px;
+  background:rgba(255,106,0,.05); color:rgba(255,255,255,.68);
+  border-radius:0 4px 4px 0;
+}
+.zlist li b { color:var(--o); margin-right:6px; }
+.dlist { list-style:none; }
+.dlist li {
+  font-family:var(--sans); font-size:11.5px; padding:6px 10px;
+  border-left:2px solid var(--p); margin-bottom:4px;
+  background:rgba(255,0,102,.05); color:rgba(255,255,255,.68);
+  border-radius:0 4px 4px 0;
+}
+.dlist li b { color:var(--p); margin-right:6px; }
+
+/* ═══════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════ */
+.toast {
+  position:fixed; top:calc(var(--top-total) - 4px); left:50%;
+  transform:translateX(-50%);
+  background:rgba(4,4,14,.97); border:1px solid var(--o); color:var(--o);
+  font-size:9.5px; padding:6px 14px; border-radius:3px;
+  z-index:9000; letter-spacing:.8px; white-space:nowrap;
+  box-shadow:0 0 18px rgba(255,106,0,.28);
+  opacity:0; transition:opacity .24s; pointer-events:none;
+}
+.toast.show { opacity:1; }
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════ */
+@media (max-width:360px) {
+  .h-logo { font-size:14px; }
+  .p-name { font-size:17px; }
+}
+@media (orientation:landscape) and (max-height:500px) {
+  :root { --ticker-h:22px; --header-h:42px; --legend-h:24px; --nav-h:42px; }
+  .h-logo { font-size:14px; }
+  .panel { height:220px; }
+  .panel.open { bottom:var(--nav-h); }
+}
+</style>
+
+
+
+</head>
+<body>
+
+<!-- TICKER -->
+<div class="ticker">
+  <div class="t-badge">⚡ LIVE</div>
+  <div class="t-track">
+    <div class="t-inner">
+      ⚠ 위험구역 7곳 상시 단속 — 베데스다공원 · 진리관-목양관 사이 · 주차장7 옆 · 백석문화대학교 주변 · 글로벌외식산업관 앞 · 예술대학동 앞 · 쪽문 인근
+      <span class="s">◈</span>
+      지정 흡연구역 13곳 운영중 · 지정구역 외 흡연 시 과태료 부과
+      <span class="s">◈</span>
+      BU 스마트 흡연 지도 — 흡연자와 비흡연자 모두를 위해 서로의 공간을 존중해요 😊
+    </div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="h-logo">백석대 <em>흡연</em> 지도</div>
+  <div class="h-badges">
+    <div class="chip chip-live">● LIVE</div>
+    <div class="chip chip-z">13 ZONES</div>
+    <div class="chip chip-d">7 DANGER</div>
+  </div>
+</header>
+
+<!-- LEGEND -->
+<div class="legend">
+  <div class="leg" onclick="applyFilter('all')">
+    <div class="ld ld-c"></div><span style="color:var(--c)">전체보기</span>
+  </div>
+  <div class="leg" onclick="applyFilter('smoke')">
+    <div class="ld ld-o"></div><span style="color:var(--o)">흡연구역(13)</span>
+  </div>
+  <div class="leg" onclick="applyFilter('danger')">
+    <div class="ld ld-p"></div><span style="color:var(--p)">위험구역(7)</span>
+  </div>
+  <div class="leg leg-hint">핀 클릭 → 상세정보</div>
+</div>
+
+<!-- MAP AREA -->
+<div class="map-area" id="mapArea">
+  <div id="map" style="width:100%;height:100%;"></div>
+</div>
+
+<!-- HUD -->
+<div class="hud">
+  <div class="hud-row"><span class="hud-n co">13</span><span class="hud-l co">흡연구역</span></div>
+  <div class="hud-div"></div>
+  <div class="hud-row"><span class="hud-n cp">7</span><span class="hud-l cp">위험구역</span></div>
+</div>
+
+<!-- ZOOM FABs -->
+<div class="fabs">
+  <div class="fab" onclick="doZoom(1.28)"  title="확대">＋</div>
+  <div class="fab" onclick="doZoom(0.78)"  title="축소">－</div>
+  <div class="fab" onclick="resetView()"   title="초기화" style="font-size:13px">↺</div>
+</div>
+
+<!-- DETAIL PANEL -->
+<div class="panel" id="panel">
+  <div class="p-handle" onclick="closePanel()"></div>
+  <div class="p-x" onclick="closePanel()">✕</div>
+  <div class="p-id"   id="pId">ZONE #00</div>
+  <div class="p-name" id="pName">흡연구역</div>
+  <div class="p-hr"></div>
+  <div class="p-grid">
+    <div class="p-cell"><div class="p-cl">위치</div><div class="p-cv" id="pLoc">—</div></div>
+    <div class="p-cell"><div class="p-cl">상태</div><div class="p-cv" id="pStat">—</div></div>
+    <div class="p-cell"><div class="p-cl">시설</div><div class="p-cv" id="pFac">—</div></div>
+    <div class="p-cell"><div class="p-cl">비고</div><div class="p-cv" id="pNote">—</div></div>
+  </div>
+  <div class="p-tags" id="pTags"></div>
+</div>
+
+<!-- BOTTOM NAV -->
+<nav class="nav">
+  <button class="nb on" id="nb0" onclick="navGo(0)"><span class="nb-i">🗺</span>지도</button>
+  <button class="nb"    id="nb1" onclick="navGo(1)"><span class="nb-i">🚬</span>흡연구역</button>
+  <button class="nb"    id="nb2" onclick="navGo(2)"><span class="nb-i">⚠️</span>위험구역</button>
+  <button class="nb"    id="nb3" onclick="navGo(3)"><span class="nb-i">ℹ️</span>안내</button>
+</nav>
+
+<!-- INFO MODAL -->
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>📋 BU 흡연 안내</h2>
+      <button class="modal-x" onclick="closeModal()">✕ 닫기</button>
+    </div>
+    <p>백석대학교는 <strong>금연 캠퍼스</strong>를 지향합니다.<br>
+    지정된 <strong>흡연구역 13곳</strong>에서만 흡연하시고, 서로의 공간을 존중해 주세요 😊</p>
+
+    <div class="msec" style="color:var(--o)">▶ 흡연구역 13곳</div>
+    <ul class="zlist" id="zoneList"></ul>
+
+    <div class="msec" style="color:var(--p);margin-top:12px">▶ 간접흡연 위험구역 7곳 (상시 단속)</div>
+    <ul class="dlist" id="dangerList"></ul>
+
+    <p style="color:rgba(255,0,102,.8);margin-top:10px">
+      ⚠ 지정구역 외 흡연 적발 시 <strong style="color:var(--p)">과태료 부과</strong> 대상입니다.
+    </p>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+<script>
+/* ════════════════════════════════════════════
+   DATA
+   x, y = percentage position on the map image
+   Calibrated from image_9.png analysis:
+   — Red pins  (흡연구역)  : 1–13
+   — Pink zones (위험구역) : 1–7
+════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════
+   RENDER
+════════════════════════════════════════════ */
+function pinSVG(n) {
+  return `<svg width="30" height="38" viewBox="0 0 30 38" xmlns="http://www.w3.org/2000/svg">
+    <path d="M15 0C6.72 0 0 6.72 0 15c0 11.25 15 23 15 23s15-11.75 15-23C30 6.72 23.28 0 15 0z"
+      fill="rgba(255,106,0,0.18)" stroke="#ff6a00" stroke-width="1.6"/>
+    <circle cx="15" cy="15" r="9" fill="rgba(255,106,0,0.22)" stroke="#ff6a00" stroke-width="1"/>
+    <text x="15" y="19.5" text-anchor="middle"
+      fill="#ff6a00" font-family="'Share Tech Mono',monospace" font-size="${n > 9 ? 8 : 9}" font-weight="bold">${n}</text>
+  </svg>`;
+}
+
+// x/y% 대신 실제 위경도 사용
+const ZONES = [
+  { id:1,  name:'학생복지관 옆',           lat:36.8406865, lng:127.1828434, loc:'학생복지관 옆',             stat:'운영중', fac:'흡연실', note:'상시운영',     tags:['흡연실','학생빈도↑','중앙'] },
+  { id:2,  name:'은혜관 이마트24 옆',      lat:36.8387888, lng:127.1817832, loc:'은혜관 이마트24 옆',        stat:'운영중', fac:'재떨이', note:'상시운영',     tags:['은혜관','이마트24'] },
+  { id:3,  name:'창조관 앞',               lat:36.8377042, lng:127.1817710, loc:'창조관 앞',                stat:'운영중', fac:'재떨이', note:'상시운영',     tags:['창조관','서편'] },
+  { id:4,  name:'창조관 올라가기 전 옆',   lat:36.8380841, lng:127.1820106, loc:'창조관 올라가기 전 옆',    stat:'운영중', fac:'재떨이', note:'상시운영',     tags:['창조관','측면'] },
+  { id:5,  name:'글로벌외식산업관 옆',     lat:36.8372484, lng:127.1854491, loc:'글로벌외식산업관 옆',      stat:'운영중', fac:'흡연실', note:'식사시간 혼잡', tags:['글로벌외식','식당인접'] },
+  { id:6,  name:'지혜관 앞 흡연실',        lat:36.8390280, lng:127.1843146, loc:'지혜관 앞',                stat:'운영중', fac:'흡연실', note:'상시운영',     tags:['지혜관','중앙'] },
+  { id:7,  name:'본부동 뒤',               lat:36.8394272, lng:127.1861465, loc:'본부동 뒤편',              stat:'운영중', fac:'흡연실', note:'상시운영',     tags:['본부동','중앙'] },
+  { id:8,  name:'예술대학동 옆',           lat:36.8391515, lng:127.1872422, loc:'예술대학동 옆',            stat:'운영중', fac:'재떨이', note:'주차장 인접',  tags:['예술대학동','주차장'] },
+  { id:9,  name:'조형관 2층 응급차 주차장',lat:36.8408117, lng:127.1886616, loc:'조형관 2층 응급구조 주차장',stat:'운영중', fac:'흡연실', note:'상시운영',     tags:['조형관','응급차주차장'] },
+  { id:10, name:'조형관 중앙',             lat:36.8409759, lng:127.1883887, loc:'조형관 중앙',              stat:'운영중', fac:'재떨이', note:'조형관 인접',  tags:['조형관','중앙'] },
+  { id:11, name:'체육관·조형관 사이',      lat:36.8409994, lng:127.1879759, loc:'체육관 조형관 사이',        stat:'운영중', fac:'재떨이', note:'상시운영',     tags:['체육관','조형관'] },
+  { id:12, name:'체육관 옆',               lat:36.8417142, lng:127.1870219, loc:'체육관 옆',                stat:'운영중', fac:'흡연실', note:'운동 후 이용多',tags:['체육관','외곽'] },
+  { id:13, name:'백석생활관 옆',           lat:36.8418250, lng:127.1852791, loc:'백석생활관 옆',            stat:'운영중', fac:'재떨이', note:'생활관 인접',  tags:['백석생활관','북측'] },
+];
+
+function buildZones() {
+  const ul = document.getElementById('zoneList');
+  ul.innerHTML = '';
+  ZONES.forEach(z => {
+    // 커스텀 오버레이 콘텐츠
+    const content = document.createElement('div');
+    content.className = 's-pin';
+    content.dataset.zid = z.id;
+    content.innerHTML = `<div class="plbl">${z.id}. ${z.name}</div>${pinSVG(z.id)}`;
+    content.addEventListener('click', e => { e.stopPropagation(); openPanel(z); });
+
+    const overlay = new kakao.maps.CustomOverlay({
+      position: new kakao.maps.LatLng(z.lat, z.lng),
+      content: content,
+      yAnchor: 1,
+      zIndex: 3,
+    });
+    overlay.setMap(kakaoMap);
+    z._overlay = overlay;
+    z._el = content;
+
+    // 모달 리스트
+    const li = document.createElement('li');
+    li.innerHTML = `<b>${String(z.id).padStart(2,'0')}</b>${z.name} — ${z.loc}`;
+    ul.appendChild(li);
+  });
+}
+
+const DANGERS = [
+  { id:'D1', name:'베데스다공원 주변',        lat:36.8402450, lng:127.1835400 },
+  { id:'D2', name:'진리관-목양관 사이',       lat:36.8407429, lng:127.1843551 }, // ← 실측 필요
+  { id:'D3', name:'백석대학교 후문 앞',   lat:36.8417047, lng:127.1868854 }, // ← 실측 필요
+  { id:'D4', name:'체육관 입구 일대',         lat:36.8414364, lng:127.187385 }, // ← 실측 필요
+  { id:'D5', name:'조형관 주변',         lat:36.8409559, lng:127.188301 }, // ← 실측 필요
+  { id:'D6', name:'인성관 옆',         lat:36.8390552, lng:127.1830981 }, // ← 실측 필요
+];
+
+function buildDangers() {
+  const ul = document.getElementById('dangerList');
+  ul.innerHTML = '';
+  DANGERS.forEach(d => {
+    const content = document.createElement('div');
+    content.className = 'd-zone';
+    content.innerHTML = `
+      <div class="d-outer">
+        <div class="dr1"></div><div class="dr2"></div><div class="dr3"></div>
+        <div class="d-ico">🚫</div>
+      </div>
+      <div class="d-lbl">${d.name}</div>`;
+
+      
+    const overlay = new kakao.maps.CustomOverlay({
+      position: new kakao.maps.LatLng(d.lat, d.lng),
+      content: content,
+      zIndex: 2,
+    });
+    overlay.setMap(kakaoMap);
+    d._overlay = overlay;
+
+    const li = document.createElement('li');
+    li.innerHTML = `<b>${d.id}</b>${d.name}`;
+    ul.appendChild(li);
+  });
+}
+
+/* ════════════════════════════════════════════
+   PANEL
+════════════════════════════════════════════ */
+function openPanel(z) {
+  document.getElementById('pId').textContent   = `ZONE #${String(z.id).padStart(2,'0')}`;
+  document.getElementById('pName').textContent = z.name;
+  document.getElementById('pLoc').textContent  = z.loc;
+  const sv = document.getElementById('pStat');
+  sv.textContent = z.stat;
+  sv.style.color = z.stat === '운영중' ? 'var(--g)' : 'var(--o)';
+  document.getElementById('pFac').textContent  = z.fac;
+  document.getElementById('pNote').textContent = z.note;
+  document.getElementById('pTags').innerHTML   = z.tags.map(t => `<div class="p-tag">${t}</div>`).join('');
+  document.getElementById('panel').classList.add('open');
+  document.querySelectorAll('.s-pin').forEach(p => p.classList.toggle('hi', +p.dataset.zid === z.id));
+}
+function closePanel() {
+  document.getElementById('panel').classList.remove('open');
+  document.querySelectorAll('.s-pin').forEach(p => p.classList.remove('hi'));
+}
+document.getElementById('mapArea').addEventListener('click', e => {
+  if (!e.target.closest('.s-pin')) closePanel();
+});
+
+/* ════════════════════════════════════════════
+   FILTER
+════════════════════════════════════════════ */
+
+function applyFilter(type) {
+  ZONES.forEach(z => {
+    if (!z._overlay) return;
+    z._overlay.setMap(type === 'danger' ? null : kakaoMap);
+  });
+  DANGERS.forEach(d => {
+    if (!d._overlay) return;
+    d._overlay.setMap(type === 'smoke' ? null : kakaoMap);
+  });
+  toast(type==='all'?'전체 구역 표시':type==='smoke'?'흡연구역만 표시':'위험구역만 표시');
+}
+
+/* ════ KAKAO MAP INIT ════ */
+var kakaoMap; // 전역 변수
+
+var MAP_CENTER = new kakao.maps.LatLng(36.8398, 127.1848)
+// 카카오 맵 API가 완전히 다운로드된 후 실행됨
+window.kakao.maps.load(function() {
+  var container = document.getElementById('map');
+  var options = {
+    center: MAP_CENTER,
+    level: 3
+  };
+
+  kakaoMap = new kakao.maps.Map(container, options);
+
+  // 마커 렌더링 및 알림
+  buildZones();
+  buildDangers();
+  setTimeout(function() { toast('📍 흡연구역 핀을 클릭하세요'); }, 1200);
+});
+
+/* 줌 버튼 — Kakao API 사용 */
+function doZoom(f) {
+  const cur = kakaoMap.getLevel();
+  kakaoMap.setLevel(f > 1 ? cur + 1 : cur - 1, { animate: true });
+}
+function resetView() {
+  kakaoMap.setCenter(MAP_CENTER);
+  kakaoMap.setLevel(3, { animate: true });
+}
+
+/* ════════════════════════════════════════════
+   PAN (mouse + touch)
+════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════
+   NAV
+════════════════════════════════════════════ */
+function navGo(i) {
+  [0,1,2,3].forEach(j => document.getElementById('nb'+j).classList.toggle('on', j===i));
+  if      (i===0) applyFilter('all');
+  else if (i===1) applyFilter('smoke');
+  else if (i===2) applyFilter('danger');
+  else if (i===3) openModal();
+}
+
+/* ════════════════════════════════════════════
+   MODAL
+════════════════════════════════════════════ */
+function openModal()  { document.getElementById('modalBg').classList.add('open'); }
+function closeModal() { document.getElementById('modalBg').classList.remove('open'); }
+document.getElementById('modalBg').addEventListener('click', e => {
+  if (e.target === document.getElementById('modalBg')) closeModal();
+});
+
+/* ════════════════════════════════════════════
+   TOAST
+════════════════════════════════════════════ */
+let _tt;
+function toast(msg) {
+  clearTimeout(_tt);
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  _tt = setTimeout(() => el.classList.remove('show'), 2300);
+}
+
+/* ════════════════════════════════════════════
+   IMAGE EVENTS
+════════════════════════════════════════════ */
+document.getElementById('mapImg').addEventListener('load',  () => toast('✓ 캠퍼스 지도 로딩 완료'));
+document.getElementById('mapImg').addEventListener('error', () => {
+  document.getElementById('mapImg').style.display = 'none';
+  document.getElementById('mapTf').style.background =
+    'linear-gradient(145deg,#081408 0%,#0a1520 50%,#100c08 100%)';
+  toast('⚠ 지도 이미지를 찾을 수 없습니다 (src="baekseok_map.jpg" 확인)');
+});
+
+/* ════════════════════════════════════════════
+   INIT
+════════════════════════════════════════════ */
+setTimeout(() => toast('📍 흡연구역 핀을 클릭하세요'), 1600);
+</script>
+</body>
+</html>
